@@ -36,7 +36,7 @@ def parse_opt():
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
+    # parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--green_time', type=int,default=10, help='circular green light time')
     parser.add_argument('--arrow_time', type=int,default=10, help='green arrow light time')
     parser.add_argument('--red_time', type=int,default=10, help='red light time')
@@ -49,15 +49,28 @@ def parse_opt():
 if __name__ == "__main__":
     opt = parse_opt()
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
+
+    ## load depp learning model
     device, model, imgsz = load_model(yolo_weights=opt.yolo_weights,imgsz=opt.imgsz,device=opt.device)
+    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
+    classes = [0, 2,3,5,7] # person(테스트용), car, motocycle, bus, truck
     print('model loaded')
     green_time = opt.green_time
     arrow_time = opt.arrow_time
     red_time = opt.red_time
 
+    ## green light process
     green_count = run(device=device, model=model, imgsz=imgsz,
         reid_weights=opt.reid_weights,
         tracking_method=opt.tracking_method,
-        classes=opt.classes,
+        classes=classes,
         light_time=green_time)
-    print(f'green_count : {green_count}')
+    print(f'***** green_count : {green_count} *****')
+
+    ## arrow light process
+    arrow_count = run(device=device, model=model, imgsz=imgsz,
+        reid_weights=opt.reid_weights,
+        tracking_method=opt.tracking_method,
+        classes=classes,
+        light_time=arrow_time)
+    print(f'***** arrow_count : {arrow_count} ******')
