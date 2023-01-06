@@ -99,11 +99,14 @@ class Annotator:
                 self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
         else:  # cv2
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
+            pc = (
+            int(box[0]) + int((int(box[2]) - int(box[0])) / 2), int(box[1]) + int((int(box[3]) - int(box[1])) / 2))
             cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+            cv2.line(self.im, pc, pc, color, 20)
             if label:
                 tf = max(self.lw - 1, 1)  # font thickness
                 w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
-                outside = p1[1] - h >= 3
+                outside = p1[1] - h - 3 >= 0  # label fits outside box
                 p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
                 cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
                 cv2.putText(self.im,
