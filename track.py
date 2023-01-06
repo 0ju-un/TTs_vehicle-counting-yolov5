@@ -15,6 +15,7 @@ from pathlib import Path
 import torch
 import torch.backends.cudnn as cudnn
 
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
@@ -30,15 +31,13 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 import logging
 from yolov5.models.common import DetectMultiBackend
-from yolov5.utils.dataloaders import VID_FORMATS, LoadImages, LoadStreams
+from yolov5.utils.dataloaders import LoadStreams
 from yolov5.utils.general import (LOGGER, Profile, check_img_size, non_max_suppression, scale_boxes, check_requirements, cv2,
-                                  check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args, check_file)
-from yolov5.utils.torch_utils import select_device, time_sync
-from yolov5.utils.plots import Annotator, colors, save_one_box
-from yolov5.utils.segment.general import masks2segments, process_mask, process_mask_native
+                                  check_imshow, print_args)
+from yolov5.utils.torch_utils import select_device
+from yolov5.utils.plots import Annotator, colors
 from trackers.multi_tracker_zoo import create_tracker
 
-# counter variables
 line = [(400,500), (1000, 500)]
 
 # Return true if line segments AB and CD intersect
@@ -47,6 +46,21 @@ def line_intersect(A,B,C,D):
 
 def ccw(A,B,C):
     return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
+
+# Load model
+def load_model(
+        yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
+        imgsz=(640, 640),  # inference size (height, width)
+        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+        half=False,  # use FP16 half-precision inference
+        dnn=False,  # use OpenCV DNN for ONNX inference
+
+):
+    device = select_device(device)
+    model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
+    stride, names, pt = model.stride, model.names, model.pt
+    imgsz = check_img_size(imgsz, s=stride)  # check image size
+    return device, model, stride, names, pt, imgsz
 
 @torch.no_grad()
 def run(
@@ -59,14 +73,11 @@ def run(
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        nosave=False,  # do not save images/videos
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
         visualize=True,  # visualize features
-        project=ROOT / 'runs/track',  # save results to project/name
         name='exp',  # save results to project/name
-        exist_ok=False,  # existing project/name ok, do not increment
         line_thickness=2,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
@@ -74,16 +85,10 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
-        retina_masks=False,
 ):
 
     source = str(source)
-    # save_img = not nosave and not source.endswith('.txt')  # save inference images
-    is_file = Path(source).suffix[1:] in (VID_FORMATS)
-    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-    webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
-    if is_url and is_file:
-        source = check_file(source)  # download
+    webcam = source.isnumeric()
 
     # Directories
     if not isinstance(yolo_weights, list):  # single yolo model
@@ -93,7 +98,6 @@ def run(
     else:  # multiple models after --yolo_weights
         exp_name = 'ensemble'
     exp_name = name if name else exp_name + "_" + reid_weights.stem
-    save_dir = increment_path(Path(project) / exp_name, exist_ok=exist_ok)  # increment run
 
     # Load model
     device = select_device(device)
@@ -101,15 +105,13 @@ def run(
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
+
     # Dataloader
     if webcam:
         show_vid = check_imshow()
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         nr_sources = len(dataset)
-    else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
-        nr_sources = 1
-    vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+
 
     # Create as many strong sort instances as there are video sources
     tracker_list = []
@@ -139,7 +141,7 @@ def run(
 
         # Inference
         with dt[1]:
-            visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
+            # visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
             pred = model(im, augment=augment, visualize=visualize)
 
         # Apply NMS
@@ -244,15 +246,12 @@ def parse_opt():
     parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--visualize', action='store_true', help='visualize features')
-    parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--line-thickness', default=2, type=int, help='bounding box thickness (pixels)')
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
@@ -260,7 +259,6 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
-    parser.add_argument('--retina-masks', action='store_true', help='whether to plot masks in native resolution')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
