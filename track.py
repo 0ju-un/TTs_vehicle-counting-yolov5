@@ -91,7 +91,6 @@ def run(
 
     # Load model
     device = select_device(device)
-    is_seg = '-seg' in str(yolo_weights)
     model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size(imgsz, s=stride)  # check image size
@@ -131,17 +130,11 @@ def run(
         # Inference
         with dt[1]:
             visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
-            if is_seg:
-                pred, proto = model(im, augment=augment, visualize=visualize)[:2]
-            else:
-                pred = model(im, augment=augment, visualize=visualize)
+            pred = model(im, augment=augment, visualize=visualize)
 
         # Apply NMS
         with dt[2]:
-            if is_seg:
-                pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det, nm=32)
-            else:
-                pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+            pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
             
 
         # Process detections
@@ -163,16 +156,7 @@ def run(
                     tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
 
             if det is not None and len(det):
-                if is_seg:
-                    # scale bbox first the crop masks
-                    if retina_masks:
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                        masks = process_mask_native(proto[i], det[:, 6:], det[:, :4], im0.shape[:2])  # HWC
-                    else:
-                        masks = process_mask(proto[i], det[:, 6:], det[:, :4], im.shape[2:], upsample=True)  # HWC
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
-                else:
-                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
+                det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()  # rescale boxes to im0 size
 
                 # Print results
                 for c in det[:, 5].unique():
