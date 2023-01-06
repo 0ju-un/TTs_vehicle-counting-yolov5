@@ -38,9 +38,15 @@ from yolov5.utils.plots import Annotator, colors, save_one_box
 from yolov5.utils.segment.general import masks2segments, process_mask, process_mask_native
 from trackers.multi_tracker_zoo import create_tracker
 
-# counter line
-line = [(400,638), (1250, 788)]
-counter = 0
+# counter variables
+line = [(400,500), (1000, 500)]
+
+# Return true if line segments AB and CD intersect
+def line_intersect(A,B,C,D):
+    return ccw(A,C,D) != ccw(B,C,D) and ccw(A,B,C) != ccw(A,B,D)
+
+def ccw(A,B,C):
+    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
 
 @torch.no_grad()
 def run(
@@ -117,6 +123,10 @@ def run(
 
     # Run tracking
     #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
+    prev_list = {}
+    count_list = set()
+    counter = 0
+
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
@@ -176,8 +186,18 @@ def run(
                         conf = output[6]
                         bbox_center_x = output[0] + (output[2] - output[0]) / 2
                         bbox_center_y = output[1] + (output[3] - output[1]) / 2
-                        # global cnt
+                        p1 = (bbox_center_x, bbox_center_y)
 
+                        if id in prev_list.keys():
+                            p2 = prev_list[id]
+                            if line_intersect(p1,p2,line[0],line[1]):
+                                counter += 1
+                                # count_list.add(id)
+                                prev_list.pop(id)
+                            else:
+                                prev_list[id] = p1 # update previous position
+                        else:
+                            prev_list[id] = p1
 
                         if show_vid:  # Add bbox to image
                             c = int(cls)  # integer class
@@ -198,6 +218,8 @@ def run(
                     windows.append(p)
                     cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+                cv2.putText(im0, 'count: '+str(counter), (25, 50),0,1,(0,0,255),2)
+                cv2.line(im0, line[0], line[1], (255,0,0), 10)
                 cv2.imshow(str(p), im0)
                 if cv2.waitKey(1) == ord('q'):  # 1 millisecond
                     exit()
