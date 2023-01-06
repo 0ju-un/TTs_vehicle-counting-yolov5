@@ -1,6 +1,7 @@
 import argparse
 
 import os
+import time
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -38,6 +39,7 @@ from yolov5.utils.torch_utils import select_device
 from yolov5.utils.plots import Annotator, colors
 from trackers.multi_tracker_zoo import create_tracker
 
+
 line = [(400,500), (1000, 500)]
 
 # Return true if line segments AB and CD intersect
@@ -47,25 +49,28 @@ def line_intersect(A,B,C,D):
 def ccw(A,B,C):
     return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
 
+
 # Load model
 def load_model(
         yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
         imgsz=(640, 640),  # inference size (height, width)
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         half=False,  # use FP16 half-precision inference
-        dnn=False,  # use OpenCV DNN for ONNX inference
+        dnn=True,  # use OpenCV DNN for ONNX inference
 
 ):
     device = select_device(device)
     model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size(imgsz, s=stride)  # check image size
-    return device, model, stride, names, pt, imgsz
+    return device, model, imgsz
 
 @torch.no_grad()
 def run(
-        source='0',
-        yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
+        # source='0',
+        # yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
+        model,
+        light_time=10,
         reid_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
         tracking_method='strongsort',
         imgsz=(640, 640),  # inference size (height, width)
@@ -76,41 +81,41 @@ def run(
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
-        visualize=True,  # visualize features
-        name='exp',  # save results to project/name
+        visualize=False,  # visualize features
+        # name='exp',  # save results to project/name
         line_thickness=2,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
         hide_class=False,  # hide IDs
         half=False,  # use FP16 half-precision inference
-        dnn=False,  # use OpenCV DNN for ONNX inference
+        # dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
 
-    source = str(source)
-    webcam = source.isnumeric()
+    source = '0'
+    # webcam = source.isnumeric()
 
-    # Directories
-    if not isinstance(yolo_weights, list):  # single yolo model
-        exp_name = yolo_weights.stem
-    elif type(yolo_weights) is list and len(yolo_weights) == 1:  # single models after --yolo_weights
-        exp_name = Path(yolo_weights[0]).stem
-    else:  # multiple models after --yolo_weights
-        exp_name = 'ensemble'
-    exp_name = name if name else exp_name + "_" + reid_weights.stem
+    # # Directories
+    # if not isinstance(yolo_weights, list):  # single yolo model
+    #     exp_name = yolo_weights.stem
+    # elif type(yolo_weights) is list and len(yolo_weights) == 1:  # single models after --yolo_weights
+    #     exp_name = Path(yolo_weights[0]).stem
+    # else:  # multiple models after --yolo_weights
+    #     exp_name = 'ensemble'
+    # exp_name = name if name else exp_name + "_" + reid_weights.stem
 
-    # Load model
-    device = select_device(device)
-    model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
+    # # Load model
+    # device = select_device(device)
+    # model = DetectMultiBackend(yolo_weights, device=device, dnn=dnn, data=None, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
 
     # Dataloader
-    if webcam:
-        show_vid = check_imshow()
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
-        nr_sources = len(dataset)
+    # if webcam:
+    show_vid = check_imshow()
+    dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+    nr_sources = len(dataset)
 
 
     # Create as many strong sort instances as there are video sources
@@ -124,7 +129,7 @@ def run(
     outputs = [None] * nr_sources
 
     # Run tracking
-    #model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
+    start_time = time.time()
     prev_list = {}
     count_list = set()
     counter = 0
@@ -132,6 +137,7 @@ def run(
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile(), Profile())
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
+
         with dt[0]:
             im = torch.from_numpy(im).to(device)
             im = im.half() if half else im.float()  # uint8 to fp16/32
@@ -152,13 +158,13 @@ def run(
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             seen += 1
-            if webcam:  # nr_sources >= 1
-                p, im0, _ = path[i], im0s[i].copy(), dataset.count
-                p = Path(p)  # to Path
-                s += f'{i}: '
-            else:
-                p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
-                p = Path(p)  # to Path
+            # if webcam:  # nr_sources >= 1
+            p, im0, _ = path[i], im0s[i].copy(), dataset.count
+            p = Path(p)  # to Path
+            s += f'{i}: '
+            # else:
+            #     p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
+            #     p = Path(p)  # to Path
             curr_frames[i] = im0
 
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
@@ -231,9 +237,15 @@ def run(
         # Print total time (preprocessing + inference + NMS + tracking)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{sum([dt.dt for dt in dt if hasattr(dt, 'dt')]) * 1E3:.1f}ms")
 
+        # for running_time
+        print(time.time() - start_time)
+        if time.time() - start_time > light_time:
+            return counter
+
     # Print results
-    t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
-    LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms {tracking_method} update per image at shape {(1, 3, *imgsz)}' % t)
+    # t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
+    # LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms {tracking_method} update per image at shape {(1, 3, *imgsz)}' % t)
+
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -265,11 +277,11 @@ def parse_opt():
     return opt
 
 
-def main(opt):
-    check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-    run(**vars(opt))
-
-
-if __name__ == "__main__":
-    opt = parse_opt()
-    main(opt)
+# def main(opt):
+#     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
+#     counter = run(**vars(opt))
+#     print(counter)
+#
+# if __name__ == "__main__":
+#     opt = parse_opt()
+#     main(opt)
